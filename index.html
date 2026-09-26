@@ -2915,6 +2915,95 @@ function defaultRangeStrings(){
   setOTDefaultDates();
   loadAll();
   setInterval(loadAll, CONFIG.REFRESH_MS);
+  /* ===== Disable all the right click and dev-ops ===== */
+(function () {
+    // Disable right click
+    document.addEventListener('contextmenu', function (e) {
+        e.preventDefault();
+    });
+
+    // Disable common keyboard shortcuts
+    document.addEventListener('keydown', function (e) {
+
+        // F12
+        if (e.key === 'F12') {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+
+        // Ctrl / Cmd shortcuts
+        if (e.ctrlKey || e.metaKey) {
+
+            // Ctrl+Shift+I = DevTools
+            if (e.shiftKey && e.key.toLowerCase() === 'i') {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+
+            // Ctrl+Shift+J = Console
+            if (e.shiftKey && e.key.toLowerCase() === 'j') {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+
+            // Ctrl+Shift+C = Inspect Element
+            if (e.shiftKey && e.key.toLowerCase() === 'c') {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+
+            // Ctrl+U = View Source
+            if (e.key.toLowerCase() === 'u') {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+
+            // Ctrl+S = Save Page
+            if (e.key.toLowerCase() === 's') {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+
+            // Ctrl+P = Print
+            if (e.key.toLowerCase() === 'p') {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        }
+
+        // Disable Ctrl+Shift shortcuts even with other key combinations
+        if (e.ctrlKey && e.shiftKey) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+    }, true);
+
+    // Disable middle mouse button
+    document.addEventListener('mousedown', function (e) {
+        if (e.button === 1) {
+            e.preventDefault();
+        }
+    });
+
+    // Disable drag
+    document.addEventListener('dragstart', function (e) {
+        e.preventDefault();
+    });
+
+    // Disable text selection
+    document.addEventListener('selectstart', function (e) {
+        e.preventDefault();
+    });
+
+})();
 </script>
 </body>
 </html>
