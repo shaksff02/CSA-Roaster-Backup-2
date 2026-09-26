@@ -1085,7 +1085,7 @@
   <div id="adminView" style="display:none;">
     <div class="admin-gate" id="adminGate">
       <div class="lock-title">Admin Access</div>
-      <div class="lock-sub">Swap request approve/reject করার জন্য admin passcode দাও। এটা শুধু একটা হালকা গেট — সত্যিকারের যাচাই সার্ভার (Apps Script) সাইডে হয়।</div>
+      <div class="lock-sub">Enter the admin passcode to approve/reject swap requests. This is just a light gate — the real verification happens on the server (Apps Script) side.</div>
       <input type="password" id="adminPasscodeInput" placeholder="Passcode" autocomplete="off">
       <button type="button" class="ot-add-btn" id="adminUnlockBtn" style="width:100%;justify-content:center;">Unlock</button>
       <div class="ot-modal-msg err" id="adminGateMsg" style="text-align:center;"></div>
@@ -1095,7 +1095,7 @@
       <div class="ot-hero">
         <div>
           <div class="ot-hero-title">Swap Approvals</div>
-          <div class="ot-hero-sub">Pending swap request গুলো এখানে approve/reject করা যাবে। Approve করলে সাথে সাথে Schedule sheet-এ swap হয়ে যাবে এবং পরের sync-এ main website-এ দেখা যাবে।</div>
+          <div class="ot-hero-sub">Pending swap requests can be approved/rejected here. Approving will swap them in the Schedule sheet immediately and show on the main website after the next sync.</div>
         </div>
       </div>
       <div class="swap-list-title">Pending <span class="badge" id="adminPendingBadge">0</span></div>
@@ -1489,12 +1489,12 @@
     adminToken = null;
     document.getElementById('adminPanelWrap').style.display = 'none';
     document.getElementById('adminGate').style.display = 'block';
-    document.getElementById('adminGateMsg').textContent = message || 'Session-এর মেয়াদ শেষ — আবার passcode দাও।';
+    document.getElementById('adminGateMsg').textContent = message || 'Session expired — please enter the passcode again.';
     document.getElementById('adminPasscodeInput').value = '';
   }
   function lockAdminIfExpired(){
     if(adminUnlocked && (!adminToken || Date.now() >= adminTokenExpiresAt)){
-      forceAdminRelogin('Session-এর মেয়াদ শেষ — আবার passcode দাও।');
+      forceAdminRelogin('Session expired — please enter the passcode again.');
     }
   }
 
@@ -2553,8 +2553,8 @@ function defaultRangeStrings(){
     const val = document.getElementById('adminPasscodeInput').value;
     const btn = document.getElementById('adminUnlockBtn');
     const msg = document.getElementById('adminGateMsg');
-    if(!val){ msg.textContent = 'Passcode দাও।'; return; }
-    btn.disabled = true; btn.textContent = 'যাচাই হচ্ছে…'; msg.textContent = '';
+    if(!val){ msg.textContent = 'Please enter the passcode.'; return; }
+    btn.disabled = true; btn.textContent = 'Verifying…'; msg.textContent = '';
     try{
       const res = await fetch(CONFIG.OT_API_URL, {
         method: 'POST',
@@ -2571,10 +2571,10 @@ function defaultRangeStrings(){
         document.getElementById('adminPanelWrap').style.display = 'block';
         renderAdminPanel();
       } else {
-        msg.textContent = 'ভুল passcode।';
+        msg.textContent = 'Incorrect passcode.';
       }
     } catch(err){
-      msg.textContent = 'ব্যর্থ — internet connection চেক করো।';
+      msg.textContent = 'Failed — please check your internet connection.';
     } finally {
       btn.disabled = false; btn.textContent = 'Unlock';
     }
@@ -2638,8 +2638,8 @@ function defaultRangeStrings(){
         // token invalid/expired হলে আবার login করতে বলা — কখনো passcode client-এ সেভ থাকে না
         row.querySelectorAll('button').forEach(b => b.disabled = false);
         btn.textContent = decision === 'approve' ? 'Approve' : 'Reject';
-        alert(out.message === 'invalid or expired session' ? 'Session-এর মেয়াদ শেষ — আবার login করো।' : 'ব্যর্থ — আবার চেষ্টা করো।');
-        if(out.message === 'invalid or expired session'){ forceAdminRelogin('Session-এর মেয়াদ শেষ — আবার login করো।'); }
+        alert(out.message === 'invalid or expired session' ? 'Session expired — please log in again.' : 'Failed — please try again.');
+        if(out.message === 'invalid or expired session'){ forceAdminRelogin('Session expired — please log in again.'); }
         return;
       }
       const s = SWAP_ROWS.find(x => x.requestId === requestId);
@@ -2648,7 +2648,7 @@ function defaultRangeStrings(){
     }catch(err){
       row.querySelectorAll('button').forEach(b => b.disabled = false);
       btn.textContent = decision === 'approve' ? 'Approve' : 'Reject';
-      alert('ব্যর্থ — internet connection চেক করো।');
+      alert('Failed — please check your internet connection.');
     }
   });
 
