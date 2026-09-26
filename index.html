@@ -1243,10 +1243,10 @@
     OT_SHEET_NAME: "Form_Responses",
     SWAP_SHEET_NAME: "Swap_Requests",
     OT_RATE: 61,
-    // একই Apps Script Web App এখন OT + Swap দুটোই handle করে (action ফিল্ড দিয়ে আলাদা হয়)
+    // একই Apps Script Web App এখন OT + Swap + Admin auth তিনটাই handle করে (action ফিল্ড দিয়ে আলাদা হয়)
     OT_API_URL: "https://script.google.com/macros/s/AKfycbyK9RD0_yyCwuJ6bu80rTk42pPmQuQaPZlodnMsd5E0CWM016U-ZMK5wgaQa-3s5eE_Hg/exec",
-    // ⚠️ এই passcode বদলে দাও, আর Apps Script-এর ADMIN_PASSCODE-ও ঠিক এই একই ভ্যালুতে রাখো
-    ADMIN_PASSCODE: "8089355Ss@",
+    // Admin passcode এখন আর এখানে নাই — শুধু Apps Script backend-এ থাকে (ADMIN_PASSCODE constant)।
+    // Login হয় server-এর কাছে passcode পাঠিয়ে; server ভেরিফাই করে একটা short-lived session token ফেরত দেয়।
     REFRESH_MS: 900000
   };
 
@@ -1446,6 +1446,8 @@
   let OT_ROWS = [];
   let SWAP_ROWS = [];
   let adminUnlocked = false;
+  let adminToken = null;        // server-issued short-lived session token — never the passcode itself
+  let adminTokenExpiresAt = 0;  // ms epoch; token invalid after this
   let SELECTED_SORT_KEY = getSortKeyFromDate(new Date());
   let salaryVisible = false;
   let selectedKpiCategory = '';
@@ -1477,9 +1479,24 @@
       if(targetId === 'calendarView') renderCalendar();
       if(targetId === 'swapView') renderSwap();
       if(targetId === 'otView') renderOTSummary();
-      if(targetId === 'adminView') renderAdminPanel();
+      if(targetId === 'adminView'){ lockAdminIfExpired(); renderAdminPanel(); }
     });
   });
+
+  /* session token যদি মেয়াদ শেষ হয়ে যায় (বা invalid হয়), আবার gate দেখানো — কোনো passcode/token client-এ persist করা হয় না */
+  function forceAdminRelogin(message){
+    adminUnlocked = false;
+    adminToken = null;
+    document.getElementById('adminPanelWrap').style.display = 'none';
+    document.getElementById('adminGate').style.display = 'block';
+    document.getElementById('adminGateMsg').textContent = message || 'Session-এর মেয়াদ শেষ — আবার passcode দাও।';
+    document.getElementById('adminPasscodeInput').value = '';
+  }
+  function lockAdminIfExpired(){
+    if(adminUnlocked && (!adminToken || Date.now() >= adminTokenExpiresAt)){
+      forceAdminRelogin('Session-এর মেয়াদ শেষ — আবার passcode দাও।');
+    }
+  }
 
   /* ========== TODAY VIEW RENDER ========== */
   const monthsEn = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -2531,16 +2548,35 @@ function defaultRangeStrings(){
     }
   });
 
-  /* ----- admin panel ----- */
-  document.getElementById('adminUnlockBtn').addEventListener('click', () => {
+  /* ----- admin panel: server-verified login (passcode client-এ কোথাও নাই) ----- */
+  document.getElementById('adminUnlockBtn').addEventListener('click', async () => {
     const val = document.getElementById('adminPasscodeInput').value;
-    if(val === CONFIG.ADMIN_PASSCODE){
-      adminUnlocked = true;
-      document.getElementById('adminGate').style.display = 'none';
-      document.getElementById('adminPanelWrap').style.display = 'block';
-      renderAdminPanel();
-    } else {
-      document.getElementById('adminGateMsg').textContent = 'ভুল passcode।';
+    const btn = document.getElementById('adminUnlockBtn');
+    const msg = document.getElementById('adminGateMsg');
+    if(!val){ msg.textContent = 'Passcode দাও।'; return; }
+    btn.disabled = true; btn.textContent = 'যাচাই হচ্ছে…'; msg.textContent = '';
+    try{
+      const res = await fetch(CONFIG.OT_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'admin_login', passcode: val })
+      });
+      const out = await res.json();
+      if(out.status === 'ok' && out.token){
+        adminToken = out.token;
+        adminTokenExpiresAt = out.expiresAt || (Date.now() + 25 * 60 * 1000);
+        adminUnlocked = true;
+        document.getElementById('adminPasscodeInput').value = '';
+        document.getElementById('adminGate').style.display = 'none';
+        document.getElementById('adminPanelWrap').style.display = 'block';
+        renderAdminPanel();
+      } else {
+        msg.textContent = 'ভুল passcode।';
+      }
+    } catch(err){
+      msg.textContent = 'ব্যর্থ — internet connection চেক করো।';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Unlock';
     }
   });
   document.getElementById('adminPasscodeInput').addEventListener('keydown', (e) => {
@@ -2592,12 +2628,20 @@ function defaultRangeStrings(){
     row.querySelectorAll('button').forEach(b => b.disabled = true);
     btn.textContent = decision === 'approve' ? 'Approving…' : 'Rejecting…';
     try{
-      await fetch(CONFIG.OT_API_URL, {
+      const res = await fetch(CONFIG.OT_API_URL, {
         method: 'POST',
-        mode: 'no-cors',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'swap_review', requestId, decision, passcode: CONFIG.ADMIN_PASSCODE })
+        body: JSON.stringify({ action: 'swap_review', requestId, decision, token: adminToken })
       });
+      const out = await res.json();
+      if(out.status !== 'ok'){
+        // token invalid/expired হলে আবার login করতে বলা — কখনো passcode client-এ সেভ থাকে না
+        row.querySelectorAll('button').forEach(b => b.disabled = false);
+        btn.textContent = decision === 'approve' ? 'Approve' : 'Reject';
+        alert(out.message === 'invalid or expired session' ? 'Session-এর মেয়াদ শেষ — আবার login করো।' : 'ব্যর্থ — আবার চেষ্টা করো।');
+        if(out.message === 'invalid or expired session'){ forceAdminRelogin('Session-এর মেয়াদ শেষ — আবার login করো।'); }
+        return;
+      }
       const s = SWAP_ROWS.find(x => x.requestId === requestId);
       if(s) s.status = decision === 'approve' ? 'Approved' : 'Rejected';
       renderAdminPanel();
@@ -2915,95 +2959,6 @@ function defaultRangeStrings(){
   setOTDefaultDates();
   loadAll();
   setInterval(loadAll, CONFIG.REFRESH_MS);
-  /* ===== Disable all the right click and dev-ops ===== */
-(function () {
-    // Disable right click
-    document.addEventListener('contextmenu', function (e) {
-        e.preventDefault();
-    });
-
-    // Disable common keyboard shortcuts
-    document.addEventListener('keydown', function (e) {
-
-        // F12
-        if (e.key === 'F12') {
-            e.preventDefault();
-            e.stopPropagation();
-            return false;
-        }
-
-        // Ctrl / Cmd shortcuts
-        if (e.ctrlKey || e.metaKey) {
-
-            // Ctrl+Shift+I = DevTools
-            if (e.shiftKey && e.key.toLowerCase() === 'i') {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            }
-
-            // Ctrl+Shift+J = Console
-            if (e.shiftKey && e.key.toLowerCase() === 'j') {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            }
-
-            // Ctrl+Shift+C = Inspect Element
-            if (e.shiftKey && e.key.toLowerCase() === 'c') {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            }
-
-            // Ctrl+U = View Source
-            if (e.key.toLowerCase() === 'u') {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            }
-
-            // Ctrl+S = Save Page
-            if (e.key.toLowerCase() === 's') {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            }
-
-            // Ctrl+P = Print
-            if (e.key.toLowerCase() === 'p') {
-                e.preventDefault();
-                e.stopPropagation();
-                return false;
-            }
-        }
-
-        // Disable Ctrl+Shift shortcuts even with other key combinations
-        if (e.ctrlKey && e.shiftKey) {
-            e.preventDefault();
-            e.stopPropagation();
-            return false;
-        }
-    }, true);
-
-    // Disable middle mouse button
-    document.addEventListener('mousedown', function (e) {
-        if (e.button === 1) {
-            e.preventDefault();
-        }
-    });
-
-    // Disable drag
-    document.addEventListener('dragstart', function (e) {
-        e.preventDefault();
-    });
-
-    // Disable text selection
-    document.addEventListener('selectstart', function (e) {
-        e.preventDefault();
-    });
-
-})();
 </script>
 </body>
 </html>
